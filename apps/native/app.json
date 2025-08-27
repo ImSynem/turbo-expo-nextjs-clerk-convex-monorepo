@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "scheme": "notescontract",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./src/assets/images/icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#0D87E1"
     },
@@ -22,7 +22,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./src/assets/images/adaptive-icon.png",
+        "foregroundImage": "./src/assets/images/icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
