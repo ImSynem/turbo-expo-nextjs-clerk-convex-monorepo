@@ -10,9 +10,10 @@
   "license": "ISC",
   "dependencies": {
     "convex": "^1.25.0",
+    "effect": "^3.17.9",
     "openai": "^4.45.0"
   },
-   "devDependencies": {
+  "devDependencies": {
     "typescript": "5.8.3"
   }
 }

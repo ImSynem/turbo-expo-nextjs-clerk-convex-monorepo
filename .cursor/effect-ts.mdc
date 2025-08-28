@@ -1,0 +1,438 @@
+---
+description: Effect-TS Best Practices
+globs: *.ts
+alwaysApply: false
+---
+## 🚨 HIGHEST PRIORITY RULES 🚨
+
+### ABSOLUTELY FORBIDDEN: try-catch in Effect.gen
+**NEVER use `try-catch` blocks inside `Effect.gen` generators!**
+- Effect generators handle errors through the Effect type system, not JavaScript exceptions
+- Use `Effect.tryPromise`, `Effect.try`, or proper Effect error handling instead
+- **CRITICAL**: This will cause runtime errors and break Effect's error handling
+- **EXAMPLE OF WHAT NOT TO DO**:
+  ```ts
+  Effect.gen(function*() {
+    try {
+      // ❌ WRONG - Never do this in Effect.gen
+      const result = yield* someEffect
+    } catch (error) {
+      // ❌ This will never be reached and breaks Effect semantics
+    }
+  })
+  ```
+- **CORRECT PATTERN**:
+  ```ts
+  Effect.gen(function*() {
+    // ✅ Use Effect's built-in error handling
+    const result = yield* Effect.result(someEffect)
+    if (result._tag === "Failure") {
+      // Handle error case
+    }
+  })
+  ```
+
+### ABSOLUTELY FORBIDDEN: Type Assertions
+**NEVER EVER use `as never`, `as any`, or `as unknown` type assertions!**
+- These break TypeScript's type safety and hide real type errors
+- Always fix the underlying type issues instead of masking them
+- **FORBIDDEN PATTERNS**:
+  ```ts
+  // ❌ NEVER do any of these
+  const value = something as any
+  const value = something as never  
+  const value = something as unknown
+  ```
+- **CORRECT APPROACH**: Fix the actual type mismatch by:
+  - Using proper generic type parameters
+  - Importing correct types
+  - Using proper Effect constructors and combinators
+  - Adjusting function signatures to match usage
+
+### MANDATORY: Return Yield Pattern for Errors
+**ALWAYS use `return yield*` when yielding errors or interrupts in Effect.gen!**
+- When yielding `Effect.fail`, `Effect.interrupt`, or other terminal effects, always use `return yield*`
+- This makes it clear that the generator function terminates at that point
+- **MANDATORY PATTERN**:
+  ```ts
+  Effect.gen(function*() {
+    if (someCondition) {
+      // ✅ CORRECT - Always use return yield* for errors
+      return yield* Effect.fail("error message")
+    }
+    
+    if (shouldInterrupt) {
+      // ✅ CORRECT - Always use return yield* for interrupts  
+      return yield* Effect.interrupt
+    }
+    
+    // Continue with normal flow...
+    const result = yield* someOtherEffect
+    return result
+  })
+  ```
+- **WRONG PATTERNS**:
+  ```ts
+  Effect.gen(function*() {
+    if (someCondition) {
+      // ❌ WRONG - Missing return keyword
+      yield* Effect.fail("error message")
+      // Unreachable code after error!
+    }
+  })
+  ```
+- **CRITICAL**: Always use `return yield*` to make termination explicit and avoid unreachable code
+
+**Import Patterns:**
+```typescript
+// Core Effect library imports
+import { Schedule, Effect, Duration, Console } from "effect"
+
+// Schema imports (note: lowercase 'schema')
+import { Schema } from "effect/schema"
+
+// For mixed usage
+import { Effect } from "effect"
+import { Schema } from "effect/schema"
+
+// For type-only imports when needed
+import type { Schedule } from "effect"
+import type { Schema } from "effect/schema"
+```
+
+**Error Handling:**
+```typescript
+// Use Data.TaggedError for custom errors
+import { Data } from "effect"
+
+class CustomError extends Data.TaggedError("CustomError")<{
+  message: string
+}> {}
+```
+
+**Effect Patterns:**
+```typescript
+// Use Effect.gen for monadic composition
+const program = Effect.gen(function* () {
+  const result = yield* someEffect
+  return result
+})
+
+// Use proper error handling
+const safeProgram = Effect.gen(function* () {
+  const result = yield* Effect.tryPromise({
+    try: () => someAsyncOperation(),
+    catch: (error) => new CustomError({ message: String(error) })
+  })
+  return result
+})
+```
+
+**Schema Patterns:**
+```typescript
+// Basic schema usage
+import { Schema } from "effect/schema"
+
+// Simple validation
+const result = Schema.decodeUnknownSync(Schema.String)("hello")
+
+// With Effect for async validation
+import { Effect } from "effect"
+import { Schema } from "effect/schema"
+
+const program = Effect.gen(function* () {
+  const validated = yield* Schema.decodeUnknownEffect(Schema.Number)(42)
+  return validated
+})
+
+// Struct schemas
+const PersonSchema = Schema.Struct({
+  name: Schema.String,
+  age: Schema.Number
+})
+
+// Complex validation with error handling
+const safeValidation = Effect.gen(function* () {
+  const result = yield* Schema.decodeUnknownEffect(PersonSchema)(input)
+  console.log("Valid person:", result)
+  return result
+})
+```
+
+Effect by Example: Interop with Non-Effect Code
+
+Consuming non-effect code in Effect
+For calling synchronous functions, use Effect.try
+
+```ts
+import { Effect, Data } from "effect";
+
+function doThing() {
+  return "Hello World";
+}
+
+class DoThingError extends Data.TaggedError("DoThingError")<{
+  message: string;
+  cause: unknown;
+}> {}
+
+const doThingEffect = Effect.try({
+  try: () => doThing(),
+  // map unknown error to typed error
+  catch: (error) =>
+    new DoThingError({ message: "Failed to do thing", cause: error }),
+});
+
+const main = doThingEffect.pipe(Effect.tap((result) => console.log(result)));
+
+Effect.runSync(main);
+```
+
+```
+Hello World
+```
+
+
+For calling asynchronous functions, use Effect.tryPromise
+
+```ts
+import { Effect, Data } from "effect";
+
+async function doAsyncThing() {
+  return "Hello World";
+}
+
+class DoThingError extends Data.TaggedError("DoThingError")<{
+  message: string;
+  cause: unknown;
+}> {}
+
+const doThingEffect = Effect.tryPromise({
+  try: () => doAsyncThing(),
+  catch: (error) =>
+    new DoThingError({ message: "Failed to do thing", cause: error }),
+});
+
+const main = doThingEffect.pipe(Effect.tap((result) => console.log(result)));
+
+await Effect.runPromise(main);
+```
+
+```
+Hello World
+```
+
+
+Consuming Effect code in non-effect code
+To run any effect program to a promise, use Effect.runPromise
+
+```ts
+import { Effect, Context, Console, Layer, pipe } from "effect";
+
+class FooService extends Context.Tag("FooService")<FooService, number>() {
+  static layer = Layer.scoped(
+    FooService,
+    Effect.acquireRelease(
+      Console.log("constructing FooService").pipe(Effect.as(10)),
+      (foo) => Console.log("destructing FooService"),
+    ),
+  );
+}
+
+const program = Effect.gen(function* () {
+  const foo = yield* FooService;
+  return foo * 2;
+});
+
+async function nonEffectCode() {
+  const result = await pipe(
+    program,
+    // provide all required services
+    Effect.provide(FooService.layer),
+    Effect.runPromise,
+  );
+  console.log("result", result);
+}
+
+await nonEffectCode();
+```
+
+```
+constructing FooService
+destructing FooService
+result 20
+```
+
+
+Managed Runtime
+If you are calling run* functions multiple times when running Effects with services, you likely want to reuse those services across calls.
+
+You can easily do this with ManagedRuntime
+
+```ts
+import { Effect, Context, Console, Layer, pipe, ManagedRuntime } from "effect";
+
+class FooService extends Context.Tag("FooService")<FooService, number>() {
+  static layer = Layer.scoped(
+    FooService,
+    Effect.acquireRelease(
+      Console.log("constructing FooService").pipe(Effect.as(10)),
+      (foo) => Console.log("destructing FooService"),
+    ),
+  );
+}
+
+const program = Effect.gen(function* () {
+  const foo = yield* FooService;
+  return foo * 2;
+});
+
+async function nonEffectCodeDefaultRuntime() {
+  const result = await pipe(
+    program,
+    // provide all required services
+    Effect.provide(FooService.layer),
+    Effect.runPromise,
+  );
+  console.log("result", result);
+}
+
+console.log("--- no managed runtime ---");
+await nonEffectCodeDefaultRuntime();
+await nonEffectCodeDefaultRuntime();
+
+// create runtime which contains the services produced by the layer
+const managedRuntime = ManagedRuntime.make(FooService.layer);
+
+async function nonEffectCodeManagedRuntime() {
+  const result = await managedRuntime.runPromise(program);
+  console.log("result", result);
+}
+
+console.log("--- with managed runtime ---");
+await nonEffectCodeManagedRuntime();
+await nonEffectCodeManagedRuntime();
+await managedRuntime.dispose(); // run service destructors
+```
+
+```
+--- no managed runtime ---
+constructing FooService
+destructing FooService
+result 20
+constructing FooService
+destructing FooService
+result 20
+--- with managed runtime ---
+constructing FooService
+result 20
+result 20
+destructing FooService
+```
+
+
+Running Effects in non-effect code callbacks
+There may be times where you are working in an effect context, and have to work with non-effect apis that expect a callback inside which you want to run more effect code.
+
+The correct pattern for this is using Effect.runtime
+
+```ts
+import { Effect, Context, Console, Layer, Runtime, pipe } from "effect";
+
+class FooService extends Context.Tag("FooService")<FooService, number>() {
+  static layer = Layer.succeed(this, 10);
+}
+
+const logFoo = Effect.gen(function* () {
+  const foo = yield* FooService;
+  yield* Console.log(`foo: ${foo}`);
+});
+
+async function nonEffectCodeWithCallback(onDone: (result: string) => void) {
+  await new Promise((res) => setTimeout(res, 1000));
+  console.log("non effect code running callback");
+  onDone("done");
+}
+
+const main = Effect.gen(function* () {
+  // get current runtime (which must contain `FooService`)
+  const runtime = yield* Effect.runtime<FooService>();
+
+  const onDone = (result: string) => {
+    // use the existing runtime to run effects in the callback
+    Runtime.runSync(runtime, logFoo);
+  };
+
+  yield* Effect.promise(() => nonEffectCodeWithCallback(onDone));
+});
+
+pipe(main, Effect.provide(FooService.layer), Effect.runPromise);
+```
+
+```
+non effect code running callback
+foo: 10
+```
+
+**Categories to Use:**
+- `constructors` - Functions that create new instances
+- `destructors` - Functions that extract or convert values  
+- `combinators` - Functions that combine or transform existing values
+- `utilities` - Helper functions and common operations
+- `predicates` - Functions that return boolean values
+- `getters` - Functions that extract properties or values
+- `models` - Types, interfaces, and data structures
+- `symbols` - Type identifiers and branded types
+- `guards` - Type guard functions
+- `refinements` - Type refinement functions
+- `mapping` - Transformation functions
+- `filtering` - Selection and filtering operations
+- `folding` - Reduction and aggregation operations
+- `sequencing` - Sequential operation combinators
+- `error handling` - Error management functions
+- `resource management` - Resource lifecycle functions
+- `concurrency` - Concurrent operation utilities
+- `testing` - Test utilities and helpers
+- `interop` - Interoperability functions
+
+## Code Style Guidelines
+
+### TypeScript Quality Standards
+- **Type Safety**: NEVER use `any` type or `as any` assertions
+- **Explicit Types**: Use concrete types over generic `unknown` where possible
+- **Type Annotations**: Add explicit annotations when inference fails
+- **Early Returns**: Prefer early returns for better readability
+- **Input Validation**: Validate all inputs at boundaries
+- **Error Handling**: Use proper Effect error management patterns
+
+### Effect Library Conventions
+- Follow existing TypeScript patterns in the codebase
+- Use functional programming principles
+- Maintain consistency with Effect library conventions
+- Use proper Effect constructors (e.g., `Array.make()`, `Chunk.fromIterable()`)
+- Prefer `Effect.gen` for monadic composition
+- Use `Data.TaggedError` for custom error types
+- Implement resource safety with automatic cleanup patterns
+
+### Code Organization
+- No comments unless explicitly requested
+- Follow existing file structure and naming conventions
+- Delete old code when replacing functionality
+- Choose clarity over cleverness in all implementations
+
+### Core Patterns to Follow:
+- **Effect Development**: Fundamental patterns, forbidden practices, and mandatory patterns
+- **Module Organization**: Directory structure, export patterns, naming conventions, and TypeId usage
+- **Error Handling**: Data.TaggedError usage, error transformation, and recovery patterns
+- **Platform Integration**: Service abstractions and layer composition
+
+## Problem-Solving Strategies
+
+### When Encountering Complex Issues
+1. **Stop and Analyze**: Don't spiral into increasingly complex solutions
+2. **Break Down**: Divide complex problems into smaller, manageable parts
+3. **Use Parallel Approaches**: Launch multiple Task agents for different aspects
+4. **Research First**: Always understand existing patterns before creating new ones
+5. **Validate Frequently**: Use reality checkpoints to ensure you're on track
+6. **Simplify**: Choose the simplest solution that meets requirements
+7. **Ask for Help**: Request guidance rather than guessing
