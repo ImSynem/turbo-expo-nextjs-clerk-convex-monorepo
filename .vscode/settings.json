@@ -5,5 +5,21 @@
     "source.fixAll": "explicit",
     "source.organizeImports": "explicit",
     "source.sortMembers": "explicit"
+  },
+  "workbench.editor.customLabels.patterns": {
+    "**/app/**/_layout.tsx": "${dirname} - Layout",
+    "**/app/**/index.tsx": "${dirname} - Page",
+    "**/app/**/layout.tsx": "${dirname} - Layout",
+    "**/app/**/page.tsx": "${dirname} - Page",
+    "**/app/**/route.tsx": "${dirname} - Route",
+    "**/components/**/index.tsx": "${dirname} - Component",
+    "**/hooks/**/*.ts": "${filename} - Hook",
+    "**/store/**/*.ts": "${filename} - Store",
+    "**/store/**/*.tsx": "${filename} - Store",
+    "**/routers/**/*.ts": "${filename} - Router",
+    "**/schema/**/*.ts": "${filename} - Schema",
+    "**/sheets/**/*.tsx": "${filename} - Sheet",
+    "**/forms/**/*.tsx": "${filename} - Form",
+    "**/modals/**/*.tsx": "${filename} - Modal",
   }
 }
